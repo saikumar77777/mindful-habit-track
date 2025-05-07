@@ -68,9 +68,10 @@ const DayAnalysisChart: React.FC<DayAnalysisChartProps> = ({ data }) => {
                 }}
               />
               <Bar
-                dataKey="value"
+                dataKey="value" 
                 radius={[4, 4, 0, 0]}
                 fill={(entry) => entry.name === bestDay.name ? 'hsla(var(--primary), 0.8)' : 'hsla(var(--secondary), 0.6)'}
+                fillOpacity={0.8}
               />
             </BarChart>
           </ChartContainer>

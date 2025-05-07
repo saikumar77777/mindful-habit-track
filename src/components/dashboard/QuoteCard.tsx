@@ -2,6 +2,9 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
+import { Button } from '@/components/ui/button';
+import { Share2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface QuoteCardProps {
   className?: string;
@@ -61,21 +64,57 @@ const getQuoteOfTheDay = () => {
 
 const QuoteCard: React.FC<QuoteCardProps> = ({ className }) => {
   const { showDailyQuote } = useTheme();
+  const { toast } = useToast();
   
   if (!showDailyQuote) return null;
   
   const { quote, author } = getQuoteOfTheDay();
 
+  const handleShare = async () => {
+    const shareText = `"${quote}" — ${author}\n\n#HabitVault #DailyMotivation`;
+    
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Daily Quote from HabitVault',
+          text: shareText,
+        });
+      } else {
+        // Fallback to clipboard
+        await navigator.clipboard.writeText(shareText);
+        toast({
+          title: "Quote copied to clipboard!",
+          description: "Share it with your friends for daily motivation.",
+        });
+      }
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
   return (
     <div className={cn(
       'bg-card rounded-lg border p-5',
-      'border-secondary/40 bg-secondary/5',
+      'border-secondary/40 bg-secondary/5 relative',
       className
     )}>
       <blockquote className="space-y-2">
         <p className="text-sm">"{quote}"</p>
         <footer className="text-xs text-muted-foreground text-right">— {author}</footer>
       </blockquote>
+      
+      <div className="absolute top-3 right-3">
+        <Button 
+          size="icon" 
+          variant="ghost" 
+          className="h-8 w-8 rounded-full hover:bg-secondary/20" 
+          onClick={handleShare}
+          title="Share this quote"
+        >
+          <Share2 className="h-4 w-4" />
+          <span className="sr-only">Share quote</span>
+        </Button>
+      </div>
     </div>
   );
 };
