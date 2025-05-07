@@ -23,6 +23,7 @@ import CalendarPage from "@/pages/CalendarPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import Settings from "@/pages/Settings";
 import ProfilePage from "@/pages/ProfilePage";
+import HabitTrackerPage from "@/pages/HabitTrackerPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,7 @@ const App = () => (
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/tracker" element={<HabitTrackerPage />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/profile" element={<ProfilePage />} />
               </Route>
