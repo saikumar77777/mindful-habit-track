@@ -19,6 +19,12 @@ const DayAnalysisChart: React.FC<DayAnalysisChartProps> = ({ data }) => {
     return (prev.value > current.value) ? prev : current;
   });
 
+  // Transform data to include a color property
+  const dataWithColor = data.map(item => ({
+    ...item,
+    color: item.name === bestDay.name ? 'bestDay' : 'value'
+  }));
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -44,7 +50,7 @@ const DayAnalysisChart: React.FC<DayAnalysisChartProps> = ({ data }) => {
               },
             }}
           >
-            <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <BarChart data={dataWithColor} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsla(var(--border), 0.3)" />
               <XAxis 
                 dataKey="name" 
@@ -70,8 +76,17 @@ const DayAnalysisChart: React.FC<DayAnalysisChartProps> = ({ data }) => {
               <Bar
                 dataKey="value" 
                 radius={[4, 4, 0, 0]}
-                fill={(entry) => entry.name === bestDay.name ? 'hsla(var(--primary), 0.8)' : 'hsla(var(--secondary), 0.6)'}
+                fill="hsla(var(--secondary), 0.6)"
                 fillOpacity={0.8}
+                name="Completion Rate"
+              />
+              <Bar 
+                dataKey={item => item.name === bestDay.name ? item.value : 0}
+                radius={[4, 4, 0, 0]}
+                fill="hsla(var(--primary), 0.8)"
+                fillOpacity={0.8}
+                name="Best Day"
+                hide={bestDay.value === 0}
               />
             </BarChart>
           </ChartContainer>
