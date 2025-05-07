@@ -6,7 +6,8 @@ type StorageKey =
   | 'ui_density'
   | 'auth_token'
   | 'refresh_token'
-  | 'user';
+  | 'user'
+  | 'habits';
 
 // Default values for user preferences
 const defaultValues: Record<StorageKey, any> = {
@@ -16,7 +17,8 @@ const defaultValues: Record<StorageKey, any> = {
   ui_density: 'comfortable',
   auth_token: null,
   refresh_token: null,
-  user: null
+  user: null,
+  habits: []
 };
 
 /**
