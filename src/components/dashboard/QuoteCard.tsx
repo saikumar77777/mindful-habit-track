@@ -4,8 +4,6 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
 
 interface QuoteCardProps {
-  quote: string;
-  author: string;
   className?: string;
 }
 
@@ -56,7 +54,7 @@ const quotes = [
 // Get a quote based on the current date
 const getQuoteOfTheDay = () => {
   const date = new Date();
-  const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / (24 * 60 * 60 * 1000));
+  const dayOfYear = Math.floor((date.valueOf() - new Date(date.getFullYear(), 0, 0).valueOf()) / (24 * 60 * 60 * 1000));
   const index = dayOfYear % quotes.length;
   return quotes[index];
 };
