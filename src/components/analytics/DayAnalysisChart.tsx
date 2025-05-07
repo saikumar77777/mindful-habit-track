@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
@@ -22,7 +21,7 @@ const DayAnalysisChart: React.FC<DayAnalysisChartProps> = ({ data }) => {
   // Transform data to include a color property
   const dataWithColor = data.map(item => ({
     ...item,
-    color: item.name === bestDay.name ? 'bestDay' : 'value'
+    fill: item.name === bestDay.name ? 'hsla(var(--primary), 0.8)' : 'hsla(var(--secondary), 0.6)'
   }));
 
   return (
@@ -76,17 +75,10 @@ const DayAnalysisChart: React.FC<DayAnalysisChartProps> = ({ data }) => {
               <Bar
                 dataKey="value" 
                 radius={[4, 4, 0, 0]}
-                fill="hsla(var(--secondary), 0.6)"
-                fillOpacity={0.8}
                 name="Completion Rate"
-              />
-              <Bar 
-                dataKey={item => item.name === bestDay.name ? item.value : 0}
-                radius={[4, 4, 0, 0]}
-                fill="hsla(var(--primary), 0.8)"
                 fillOpacity={0.8}
-                name="Best Day"
-                hide={bestDay.value === 0}
+                // Use fill from data
+                fill={({ payload }) => payload.fill}
               />
             </BarChart>
           </ChartContainer>

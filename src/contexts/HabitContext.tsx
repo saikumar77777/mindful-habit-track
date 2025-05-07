@@ -23,55 +23,70 @@ export const useHabits = () => {
   return context;
 };
 
-const calculateStreak = (completedDates: string[], targetDays: string[]): number => {
+// Calculate the current streak up to the most recent completion
+const calculateCurrentStreak = (completedDates: string[], targetDays: string[]): number => {
   if (!completedDates.length) return 0;
-  
-  // Sort dates in descending order
-  const sortedDates = [...completedDates].sort((a, b) => 
-    new Date(b).getTime() - new Date(a).getTime()
-  );
-  
-  let currentStreak = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  // Start from most recent date
-  let currentDate = new Date(sortedDates[0]);
-  currentDate.setHours(0, 0, 0, 0);
-  
-  // If the most recent completed date is today, start counting streak
-  if (currentDate.getTime() === today.getTime()) {
-    currentStreak = 1;
-    
-    // Check previous days
-    let checkDate = new Date(today);
-    
-    while (true) {
-      // Move to previous day
-      checkDate.setDate(checkDate.getDate() - 1);
-      
-      // Get day name
-      const dayName = checkDate.toLocaleDateString('en-US', { weekday: 'long' });
-      
-      // If this day is not a target day, skip it
-      if (!targetDays.includes(dayName)) {
-        continue;
-      }
-      
-      // Format the date to match our stored format
-      const dateString = checkDate.toISOString().split('T')[0];
-      
-      // If the date is completed, increment streak
-      if (completedDates.includes(dateString)) {
-        currentStreak++;
+  // Sort dates ascending
+  const sortedDates = [...completedDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  let streak = 0;
+  let prevDate: Date | null = null;
+  for (let i = 0; i < sortedDates.length; i++) {
+    const date = new Date(sortedDates[i]);
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    if (!targetDays.includes(dayName)) continue;
+    if (prevDate) {
+      // Find the next expected date (skip non-target days)
+      let nextExpected = new Date(prevDate);
+      do {
+        nextExpected.setDate(nextExpected.getDate() + 1);
+        const nextDayName = nextExpected.toLocaleDateString('en-US', { weekday: 'long' });
+        if (targetDays.includes(nextDayName)) break;
+      } while (true);
+      if (date.getTime() !== nextExpected.getTime()) {
+        streak = 1;
       } else {
-        // Break the streak
-        break;
+        streak++;
       }
+    } else {
+      streak = 1;
     }
+    prevDate = date;
   }
-  
-  return currentStreak;
+  return streak;
+};
+
+// Calculate the highest streak from all completions
+const calculateHighestStreak = (completedDates: string[], targetDays: string[]): number => {
+  if (!completedDates.length) return 0;
+  // Sort dates ascending
+  const sortedDates = [...completedDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  let maxStreak = 0;
+  let streak = 0;
+  let prevDate: Date | null = null;
+  for (let i = 0; i < sortedDates.length; i++) {
+    const date = new Date(sortedDates[i]);
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    if (!targetDays.includes(dayName)) continue;
+    if (prevDate) {
+      // Find the next expected date (skip non-target days)
+      let nextExpected = new Date(prevDate);
+      do {
+        nextExpected.setDate(nextExpected.getDate() + 1);
+        const nextDayName = nextExpected.toLocaleDateString('en-US', { weekday: 'long' });
+        if (targetDays.includes(nextDayName)) break;
+      } while (true);
+      if (date.getTime() !== nextExpected.getTime()) {
+        streak = 1;
+      } else {
+        streak++;
+      }
+    } else {
+      streak = 1;
+    }
+    if (streak > maxStreak) maxStreak = streak;
+    prevDate = date;
+  }
+  return maxStreak;
 };
 
 export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -109,8 +124,8 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             .filter(c => c.habit_id === habit.id)
             .map(c => c.completion_date);
 
-          const streak = calculateStreak(habitCompletions, habit.target_days);
-          const highestStreak = Math.max(habit.highest_streak || 0, streak);
+          const streak = calculateCurrentStreak(habitCompletions, habit.target_days);
+          const highestStreak = calculateHighestStreak(habitCompletions, habit.target_days);
 
           return {
             id: habit.id,
@@ -227,7 +242,7 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedCompletedDates = [...habit.completedDates, date];
           }
           
-          const newStreak = calculateStreak(updatedCompletedDates, habit.targetDays);
+          const newStreak = calculateCurrentStreak(updatedCompletedDates, habit.targetDays);
           const newHighestStreak = Math.max(habit.highestStreak, newStreak);
           
           return {

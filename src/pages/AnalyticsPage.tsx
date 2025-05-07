@@ -122,27 +122,33 @@ const AnalyticsPage: React.FC = () => {
     });
 
     // Calculate best days
+    const dayNameMap = {
+      Mon: 'Monday',
+      Tue: 'Tuesday',
+      Wed: 'Wednesday',
+      Thu: 'Thursday',
+      Fri: 'Friday',
+      Sat: 'Saturday',
+      Sun: 'Sunday',
+    };
     const bestDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => {
+      const fullDay = dayNameMap[day];
       const dayCompletions = habits.reduce((sum, habit) => {
-        if (!habit.targetDays.includes(day)) return sum;
-        
+        if (!habit.targetDays.includes(fullDay)) return sum;
         const completions = habit.completedDates.filter(date => {
           const completionDate = new Date(date);
           return completionDate >= dateRange.start && 
                  completionDate <= dateRange.end &&
                  completionDate.toLocaleDateString('en-US', { weekday: 'short' }) === day;
         }).length;
-
         return sum + completions;
       }, 0);
 
       const totalPossible = habits.reduce((sum, habit) => {
-        if (!habit.targetDays.includes(day)) return sum;
-        
+        if (!habit.targetDays.includes(fullDay)) return sum;
         const possibleCompletions = days.filter(d =>
           d.toLocaleDateString('en-US', { weekday: 'short' }) === day
         ).length;
-
         return sum + possibleCompletions;
       }, 0);
 
@@ -209,7 +215,14 @@ const AnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {isMobile ? (
+      {/* Fallback for no data */}
+      {(!loading && habits.length === 0) ? (
+        <div className="flex flex-col items-center justify-center py-16">
+          <h2 className="text-xl font-semibold mb-2">No analytics data available</h2>
+          <p className="text-muted-foreground mb-4">You have no habits to analyze yet. Add some habits to start tracking your progress!</p>
+          <Button onClick={() => window.location.href = '/tracker'}>Add Habit</Button>
+        </div>
+      ) : isMobile ? (
         // Mobile layout with tabs
         <Tabs defaultValue="summary">
           <TabsList className="grid grid-cols-3 mb-6">

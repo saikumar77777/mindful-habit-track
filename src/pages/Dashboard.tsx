@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { habits, loading } = useHabits();
+  const { habits, loading, toggleHabitCompletion } = useHabits();
   const navigate = useNavigate();
 
   // Calculate statistics
@@ -32,10 +32,10 @@ const Dashboard: React.FC = () => {
   const currentStreak = Math.max(...habits.map(h => h.streak), 0);
   const highestStreak = Math.max(...habits.map(h => h.highestStreak), 0);
 
-  const handleToggleHabit = async (id: string, completed: boolean) => {
+  const handleToggleHabit = async (id: string, date: string) => {
     try {
-      await toggleHabitCompletion(id, today);
-      toast.success(`Habit ${completed ? 'completed' : 'reset'} successfully`);
+      await toggleHabitCompletion(id, date);
+      toast.success('Habit updated successfully');
     } catch (error) {
       toast.error('Failed to update habit');
     }
@@ -117,9 +117,12 @@ const Dashboard: React.FC = () => {
                 id={habit.id}
                 name={habit.name}
                 description={`${habit.streak} day streak`}
-                completed={habit.completedDates.includes(today)}
+                completed={habit.completedDates}
                 streak={habit.streak}
                 onToggle={handleToggleHabit}
+                startDate={habit.startDate}
+                targetDays={habit.targetDays}
+                highestStreak={habit.highestStreak}
               />
             ))}
           </div>

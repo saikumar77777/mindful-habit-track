@@ -1,8 +1,8 @@
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { getItem, setItem, removeItem } from '@/lib/local-storage';
+import { supabase } from '@/integrations/supabase/client';
 
 // Types
 export interface User {
@@ -26,73 +26,6 @@ interface AuthContextType {
 // Create context
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-// Mock API functions (replace with actual API calls)
-const mockLogin = async (email: string, password: string): Promise<{ user: User, token: string, refreshToken: string }> => {
-  // Simulate API request delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Simulate validation
-  if (!email || !password) {
-    throw new Error('Email and password are required');
-  }
-  
-  if (password.length < 6) {
-    throw new Error('Password must be at least 6 characters');
-  }
-  
-  // For demo purposes, create a mock user
-  const user = {
-    id: '1',
-    email,
-    name: email.split('@')[0],
-    createdAt: new Date().toISOString()
-  };
-  
-  return {
-    user,
-    token: 'mock-jwt-token',
-    refreshToken: 'mock-refresh-token'
-  };
-};
-
-const mockSignup = async (email: string, password: string, name?: string): Promise<{ user: User, token: string, refreshToken: string }> => {
-  // Simulate API request delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Simulate validation
-  if (!email || !password) {
-    throw new Error('Email and password are required');
-  }
-  
-  if (password.length < 6) {
-    throw new Error('Password must be at least 6 characters');
-  }
-  
-  // For demo purposes, create a mock user
-  const user = {
-    id: '1',
-    email,
-    name: name || email.split('@')[0],
-    createdAt: new Date().toISOString()
-  };
-  
-  return {
-    user,
-    token: 'mock-jwt-token',
-    refreshToken: 'mock-refresh-token'
-  };
-};
-
-const mockResetPassword = async (email: string): Promise<void> => {
-  // Simulate API request delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Simulate validation
-  if (!email) {
-    throw new Error('Email is required');
-  }
-};
-
 // Provider component
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -103,30 +36,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const storedUser = getItem<User | null>('user', null);
     const token = getItem<string | null>('auth_token', null);
-    
     if (storedUser && token) {
       setUser(storedUser);
     }
-    
     setIsLoading(false);
   }, []);
 
   // Login function
   const login = async (email: string, password: string) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      const { user, token, refreshToken } = await mockLogin(email, password);
-      
-      // Save to localStorage
-      setItem('user', user);
-      setItem('auth_token', token);
-      setItem('refresh_token', refreshToken);
-      
-      setUser(user);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      // Fetch profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
+      if (profileError) throw profileError;
+      const userObj = {
+        id: data.user.id,
+        email: data.user.email,
+        name: profileData.name,
+        createdAt: data.user.created_at,
+      };
+      setUser(userObj);
+      setItem('user', userObj);
+      setItem('auth_token', data.session.access_token);
       toast.success('Logged in successfully');
       navigate('/dashboard');
-    } catch (error) {
-      toast.error(`Login failed: ${error instanceof Error ? error.message : 'An error occurred'}`);
+    } catch (error: any) {
+      toast.error(`Login failed: ${error.message || 'An error occurred'}`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -135,20 +79,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Signup function
   const signup = async (email: string, password: string, name?: string) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      const { user, token, refreshToken } = await mockSignup(email, password, name);
-      
-      // Save to localStorage
-      setItem('user', user);
-      setItem('auth_token', token);
-      setItem('refresh_token', refreshToken);
-      
-      setUser(user);
-      toast.success('Account created successfully');
-      navigate('/dashboard');
-    } catch (error) {
-      toast.error(`Signup failed: ${error instanceof Error ? error.message : 'An error occurred'}`);
+      // 1. Sign up user with Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (error) throw error;
+      // 2. Create profile in 'profiles' table
+      const user = data.user;
+      if (user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            email: user.email,
+            name: name || user.email?.split('@')[0],
+          });
+        if (profileError) throw profileError;
+      }
+      toast.success('Account created successfully. Please check your email to confirm your account.');
+      navigate('/login');
+    } catch (error: any) {
+      toast.error(`Signup failed: ${error.message || 'An error occurred'}`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -156,7 +110,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Logout function
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     removeItem('user');
     removeItem('auth_token');
     removeItem('refresh_token');
@@ -167,12 +122,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Reset password function
   const resetPassword = async (email: string) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      await mockResetPassword(email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
       toast.success('Password reset email sent');
-    } catch (error) {
-      toast.error(`Password reset failed: ${error instanceof Error ? error.message : 'An error occurred'}`);
+    } catch (error: any) {
+      toast.error(`Password reset failed: ${error.message || 'An error occurred'}`);
       throw error;
     } finally {
       setIsLoading(false);
@@ -181,17 +137,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Update profile function
   const updateProfile = async (data: Partial<User>) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      // Simulate API request delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      if (!user) throw new Error('No user');
+      const { error } = await supabase
+        .from('profiles')
+        .update({ name: data.name, email: data.email })
+        .eq('id', user.id);
+      if (error) throw error;
       const updatedUser = { ...user, ...data } as User;
       setItem('user', updatedUser);
       setUser(updatedUser);
       toast.success('Profile updated successfully');
-    } catch (error) {
-      toast.error(`Profile update failed: ${error instanceof Error ? error.message : 'An error occurred'}`);
+    } catch (error: any) {
+      toast.error(`Profile update failed: ${error.message || 'An error occurred'}`);
       throw error;
     } finally {
       setIsLoading(false);

@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +9,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import AuthLayout from "@/components/auth/AuthLayout";
 import AppLayout from "@/components/layout/AppLayout";
+import { HabitProvider } from "@/contexts/HabitContext";
 
 // Auth Pages
 import LoginPage from "@/pages/LoginPage";
@@ -33,41 +33,43 @@ const App = () => (
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner position="top-right" />
-            
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<LandingPage />} />
+          <HabitProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner position="top-right" />
               
-              {/* Auth Routes */}
-              <Route element={<AuthLayout />}>
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/signup" element={<SignupPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-              </Route>
-              
-              {/* Protected App Routes */}
-              <Route 
-                element={
-                  <ProtectedRoute>
-                    <AppLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/calendar" element={<CalendarPage />} />
-                <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/tracker" element={<HabitTrackerPage />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/profile" element={<ProfilePage />} />
-              </Route>
-              
-              {/* Not Found */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </TooltipProvider>
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<LandingPage />} />
+                
+                {/* Auth Routes */}
+                <Route element={<AuthLayout />}>
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/signup" element={<SignupPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
+                </Route>
+                
+                {/* Protected App Routes */}
+                <Route 
+                  element={
+                    <ProtectedRoute>
+                      <AppLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/calendar" element={<CalendarPage />} />
+                  <Route path="/analytics" element={<AnalyticsPage />} />
+                  <Route path="/tracker" element={<HabitTrackerPage />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/profile" element={<ProfilePage />} />
+                </Route>
+                
+                {/* Not Found */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </TooltipProvider>
+          </HabitProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
