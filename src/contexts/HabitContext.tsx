@@ -1,14 +1,13 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Habit } from '@/types/habit';
-import { setItem, getItem } from '@/lib/local-storage';
-import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './AuthContext';
 
 interface HabitContextType {
   habits: Habit[];
-  addHabit: (habit: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates'>) => void;
-  deleteHabit: (id: string) => void;
-  toggleHabitCompletion: (habitId: string, date: string) => void;
+  addHabit: (habit: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates'>) => Promise<void>;
+  deleteHabit: (id: string) => Promise<void>;
+  toggleHabitCompletion: (habitId: string, date: string) => Promise<void>;
   getCompletedDatesForHabit: (habitId: string) => string[];
   isHabitCompletedOnDate: (habitId: string, date: string) => boolean;
   loading: boolean;
@@ -78,77 +77,171 @@ const calculateStreak = (completedDates: string[], targetDays: string[]): number
 export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
-  // Load habits from localStorage on mount
+  // Load habits from Supabase on mount
   useEffect(() => {
-    const savedHabits = getItem<Habit[]>('habits', []);
-    
-    // Recalculate streaks on load
-    const habitsWithUpdatedStreaks = savedHabits.map(habit => {
-      const streak = calculateStreak(habit.completedDates, habit.targetDays);
-      const highestStreak = Math.max(habit.highestStreak || 0, streak);
-      
-      return {
-        ...habit,
-        streak,
-        highestStreak
-      };
-    });
-    
-    setHabits(habitsWithUpdatedStreaks);
-    setLoading(false);
-  }, []);
+    const fetchHabits = async () => {
+      if (!user) {
+        setHabits([]);
+        setLoading(false);
+        return;
+      }
 
-  // Save habits to localStorage whenever they change
-  useEffect(() => {
-    if (!loading) {
-      setItem('habits', habits);
-    }
-  }, [habits, loading]);
+      try {
+        const { data: habitsData, error: habitsError } = await supabase
+          .from('habits')
+          .select('*')
+          .eq('user_id', user.id);
 
-  const addHabit = (habitData: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates'>) => {
-    const newHabit: Habit = {
-      id: uuidv4(),
-      ...habitData,
-      completedDates: [],
-      streak: 0,
-      highestStreak: 0
+        if (habitsError) throw habitsError;
+
+        const { data: completionsData, error: completionsError } = await supabase
+          .from('habit_completions')
+          .select('*')
+          .in('habit_id', habitsData.map(h => h.id));
+
+        if (completionsError) throw completionsError;
+
+        // Process habits with their completions
+        const processedHabits = habitsData.map(habit => {
+          const habitCompletions = completionsData
+            .filter(c => c.habit_id === habit.id)
+            .map(c => c.completion_date);
+
+          const streak = calculateStreak(habitCompletions, habit.target_days);
+          const highestStreak = Math.max(habit.highest_streak || 0, streak);
+
+          return {
+            id: habit.id,
+            name: habit.name,
+            targetDays: habit.target_days,
+            startDate: habit.start_date,
+            completedDates: habitCompletions,
+            streak,
+            highestStreak
+          };
+        });
+
+        setHabits(processedHabits);
+      } catch (error) {
+        console.error('Error fetching habits:', error);
+      } finally {
+        setLoading(false);
+      }
     };
-    
-    setHabits(prev => [...prev, newHabit]);
+
+    fetchHabits();
+  }, [user]);
+
+  const addHabit = async (habitData: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates'>) => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('habits')
+        .insert({
+          user_id: user.id,
+          name: habitData.name,
+          target_days: habitData.targetDays,
+          start_date: habitData.startDate,
+          streak: 0,
+          highest_streak: 0
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const newHabit: Habit = {
+        id: data.id,
+        name: data.name,
+        targetDays: data.target_days,
+        startDate: data.start_date,
+        completedDates: [],
+        streak: 0,
+        highestStreak: 0
+      };
+
+      setHabits(prev => [...prev, newHabit]);
+    } catch (error) {
+      console.error('Error adding habit:', error);
+      throw error;
+    }
   };
 
-  const deleteHabit = (id: string) => {
-    setHabits(prev => prev.filter(habit => habit.id !== id));
+  const deleteHabit = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('habits')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setHabits(prev => prev.filter(habit => habit.id !== id));
+    } catch (error) {
+      console.error('Error deleting habit:', error);
+      throw error;
+    }
   };
 
-  const toggleHabitCompletion = (habitId: string, date: string) => {
-    setHabits(prev => 
-      prev.map(habit => {
-        if (habit.id !== habitId) return habit;
-        
-        let updatedCompletedDates: string[];
-        
-        if (habit.completedDates.includes(date)) {
-          // Remove date if already completed
-          updatedCompletedDates = habit.completedDates.filter(d => d !== date);
-        } else {
-          // Add date if not completed
-          updatedCompletedDates = [...habit.completedDates, date];
-        }
-        
-        // Calculate new streak
-        const newStreak = calculateStreak(updatedCompletedDates, habit.targetDays);
-        const newHighestStreak = Math.max(habit.highestStreak, newStreak);
-        
-        return {
-          ...habit,
-          completedDates: updatedCompletedDates,
-          streak: newStreak,
-          highestStreak: newHighestStreak
-        };
-      })
-    );
+  const toggleHabitCompletion = async (habitId: string, date: string) => {
+    try {
+      const habit = habits.find(h => h.id === habitId);
+      if (!habit) return;
+
+      const isCompleted = habit.completedDates.includes(date);
+
+      if (isCompleted) {
+        // Remove completion
+        const { error } = await supabase
+          .from('habit_completions')
+          .delete()
+          .eq('habit_id', habitId)
+          .eq('completion_date', date);
+
+        if (error) throw error;
+      } else {
+        // Add completion
+        const { error } = await supabase
+          .from('habit_completions')
+          .insert({
+            habit_id: habitId,
+            completion_date: date
+          });
+
+        if (error) throw error;
+      }
+
+      // Update local state
+      setHabits(prev => 
+        prev.map(habit => {
+          if (habit.id !== habitId) return habit;
+          
+          let updatedCompletedDates: string[];
+          
+          if (isCompleted) {
+            updatedCompletedDates = habit.completedDates.filter(d => d !== date);
+          } else {
+            updatedCompletedDates = [...habit.completedDates, date];
+          }
+          
+          const newStreak = calculateStreak(updatedCompletedDates, habit.targetDays);
+          const newHighestStreak = Math.max(habit.highestStreak, newStreak);
+          
+          return {
+            ...habit,
+            completedDates: updatedCompletedDates,
+            streak: newStreak,
+            highestStreak: newHighestStreak
+          };
+        })
+      );
+    } catch (error) {
+      console.error('Error toggling habit completion:', error);
+      throw error;
+    }
   };
 
   const getCompletedDatesForHabit = (habitId: string): string[] => {

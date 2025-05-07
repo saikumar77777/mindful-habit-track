@@ -1,6 +1,6 @@
-
-import React, { useState } from 'react';
+import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useHabits } from '@/contexts/HabitContext';
 import HabitCard from '@/components/dashboard/HabitCard';
 import StreakCard from '@/components/dashboard/StreakCard';
 import QuoteCard from '@/components/dashboard/QuoteCard';
@@ -9,67 +9,40 @@ import EmptyState from '@/components/dashboard/EmptyState';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Mock data
-const initialHabits = [
-  {
-    id: '1',
-    name: 'Morning meditation',
-    description: '10 minutes of mindfulness',
-    completed: false,
-    streak: 5,
-  },
-  {
-    id: '2',
-    name: 'Read a book',
-    description: 'At least 10 pages',
-    completed: true,
-    streak: 12,
-  },
-  {
-    id: '3',
-    name: 'Exercise',
-    description: '30 minutes of physical activity',
-    completed: false,
-    streak: 3,
-  },
-  {
-    id: '4',
-    name: 'Drink water',
-    description: '8 glasses throughout the day',
-    completed: false,
-    streak: 8,
-  },
-];
+import { useNavigate } from 'react-router-dom';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const [habits, setHabits] = useState(initialHabits);
+  const { habits, loading } = useHabits();
+  const navigate = useNavigate();
 
-  const pendingHabits = habits.filter(habit => !habit.completed);
-  const completedHabits = habits.filter(habit => habit.completed);
-  const completionRate = habits.length > 0 
-    ? Math.round((completedHabits.length / habits.length) * 100)
+  // Calculate statistics
+  const today = new Date().toISOString().split('T')[0];
+  const todayHabits = habits.filter(habit => 
+    habit.targetDays.includes(new Date().toLocaleDateString('en-US', { weekday: 'long' }))
+  );
+  const completedToday = todayHabits.filter(habit => 
+    habit.completedDates.includes(today)
+  );
+  const completionRate = todayHabits.length > 0 
+    ? Math.round((completedToday.length / todayHabits.length) * 100)
     : 0;
 
-  const handleToggleHabit = (id: string, completed: boolean) => {
-    setHabits(prevHabits => 
-      prevHabits.map(habit => 
-        habit.id === id 
-          ? { 
-              ...habit, 
-              completed,
-              streak: completed ? habit.streak + 1 : Math.max(0, habit.streak - 1)
-            } 
-          : habit
-      )
-    );
-    
-    toast.success(`Habit ${completed ? 'completed' : 'reset'} successfully`);
+  // Calculate streaks
+  const currentStreak = Math.max(...habits.map(h => h.streak), 0);
+  const highestStreak = Math.max(...habits.map(h => h.highestStreak), 0);
+
+  const handleToggleHabit = async (id: string, completed: boolean) => {
+    try {
+      await toggleHabitCompletion(id, today);
+      toast.success(`Habit ${completed ? 'completed' : 'reset'} successfully`);
+    } catch (error) {
+      toast.error('Failed to update habit');
+    }
   };
 
   const addNewHabit = () => {
-    toast.info("This functionality will be implemented soon!");
+    navigate('/tracker');
   };
 
   return (
@@ -99,11 +72,11 @@ const Dashboard: React.FC = () => {
           value={`${completionRate}%`}
         />
         <StreakCard 
-          value={12} 
+          value={currentStreak} 
           label="Current streak" 
         />
         <StreakCard 
-          value={30} 
+          value={highestStreak} 
           label="Highest streak" 
           isHighest
         />
@@ -123,62 +96,34 @@ const Dashboard: React.FC = () => {
           </Button>
         </div>
 
-        {habits.length === 0 ? (
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+            ))}
+          </div>
+        ) : todayHabits.length === 0 ? (
           <EmptyState
-            title="No habits yet"
-            description="Start tracking your first habit to build a consistent routine."
+            title="No habits for today"
+            description="Add habits to start tracking your progress."
             actionText="Create your first habit"
             onAction={addNewHabit}
           />
         ) : (
           <div className="space-y-3">
-            {pendingHabits.length > 0 && (
-              <>
-                <h3 className="text-sm font-medium text-muted-foreground mb-2">
-                  Pending ({pendingHabits.length})
-                </h3>
-                {pendingHabits.map(habit => (
-                  <HabitCard
-                    key={habit.id}
-                    id={habit.id}
-                    name={habit.name}
-                    description={habit.description}
-                    completed={habit.completed}
-                    streak={habit.streak}
-                    onToggle={handleToggleHabit}
-                  />
-                ))}
-              </>
-            )}
-
-            {completedHabits.length > 0 && (
-              <>
-                <h3 className="text-sm font-medium text-muted-foreground mb-2 mt-6">
-                  Completed ({completedHabits.length})
-                </h3>
-                {completedHabits.map(habit => (
-                  <HabitCard
-                    key={habit.id}
-                    id={habit.id}
-                    name={habit.name}
-                    description={habit.description}
-                    completed={habit.completed}
-                    streak={habit.streak}
-                    onToggle={handleToggleHabit}
-                  />
-                ))}
-              </>
-            )}
+            {todayHabits.map(habit => (
+              <HabitCard
+                key={habit.id}
+                id={habit.id}
+                name={habit.name}
+                description={`${habit.streak} day streak`}
+                completed={habit.completedDates.includes(today)}
+                streak={habit.streak}
+                onToggle={handleToggleHabit}
+              />
+            ))}
           </div>
         )}
-      </div>
-
-      {/* Streaks at risk */}
-      <div>
-        <h2 className="text-xl font-medium mb-4">Streaks at Risk</h2>
-        <div className="bg-card rounded-lg border p-6 text-center text-muted-foreground">
-          <p>No streaks at risk today. Great job!</p>
-        </div>
       </div>
     </div>
   );

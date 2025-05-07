@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Calendar, ChartLine, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,12 +8,15 @@ import HabitComparisonChart from '@/components/analytics/HabitComparisonChart';
 import DayAnalysisChart from '@/components/analytics/DayAnalysisChart';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getItem, setItem } from '@/lib/local-storage';
+import { useHabits } from '@/contexts/HabitContext';
+import { format, subDays, startOfDay, endOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
 
 // Time range options for analytics
 type TimeRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
 const AnalyticsPage: React.FC = () => {
   const isMobile = useIsMobile();
+  const { habits, loading } = useHabits();
   
   // Load the last selected time range from localStorage
   const [timeRange, setTimeRange] = useState<TimeRange>(
@@ -26,75 +28,187 @@ const AnalyticsPage: React.FC = () => {
     setTimeRange(range);
     setItem('analytics_range', range);
   };
-  
-  // Mock data - we'll replace this with actual data later
-  const mockData = {
-    completionRate: 68,
-    streakData: [5, 7, 2, 8, 6, 9, 4],
-    habitComparison: [
-      { name: 'Meditation', completion: 90 },
-      { name: 'Exercise', completion: 75 },
-      { name: 'Reading', completion: 60 },
-      { name: 'Water', completion: 85 },
-    ],
-    bestDays: [
-      { name: 'Mon', value: 82 },
-      { name: 'Tue', value: 65 },
-      { name: 'Wed', value: 78 },
-      { name: 'Thu', value: 90 },
-      { name: 'Fri', value: 85 },
-      { name: 'Sat', value: 50 },
-      { name: 'Sun', value: 55 },
-    ]
-  };
+
+  // Calculate date range based on selected time range
+  const dateRange = useMemo(() => {
+    const end = endOfDay(new Date());
+    let start: Date;
+
+    switch (timeRange) {
+      case 'week':
+        start = subDays(end, 7);
+        break;
+      case 'month':
+        start = subDays(end, 30);
+        break;
+      case 'quarter':
+        start = subDays(end, 90);
+        break;
+      case 'year':
+        start = subDays(end, 365);
+        break;
+      case 'all':
+      default:
+        start = new Date(0); // Beginning of time
+    }
+
+    return { start, end };
+  }, [timeRange]);
+
+  // Calculate analytics data
+  const analyticsData = useMemo(() => {
+    if (loading || !habits.length) {
+      return {
+        completionRate: 0,
+        streakData: [],
+        habitComparison: [],
+        bestDays: []
+      };
+    }
+
+    // Get all days in the selected range
+    const days = eachDayOfInterval({ start: dateRange.start, end: dateRange.end });
+    
+    // Calculate completion rate
+    const totalCompletions = habits.reduce((sum, habit) => {
+      return sum + habit.completedDates.filter(date => {
+        const completionDate = new Date(date);
+        return completionDate >= dateRange.start && completionDate <= dateRange.end;
+      }).length;
+    }, 0);
+
+    const totalPossibleCompletions = habits.reduce((sum, habit) => {
+      return sum + days.filter(day => 
+        habit.targetDays.includes(day.toLocaleDateString('en-US', { weekday: 'long' }))
+      ).length;
+    }, 0);
+
+    const completionRate = totalPossibleCompletions > 0
+      ? Math.round((totalCompletions / totalPossibleCompletions) * 100)
+      : 0;
+
+    // Calculate streak data (last 7 days)
+    const streakData = Array.from({ length: 7 }, (_, i) => {
+      const date = subDays(new Date(), i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const completions = habits.filter(habit => 
+        habit.completedDates.includes(dateStr) &&
+        habit.targetDays.includes(date.toLocaleDateString('en-US', { weekday: 'long' }))
+      ).length;
+
+      const total = habits.filter(habit =>
+        habit.targetDays.includes(date.toLocaleDateString('en-US', { weekday: 'long' }))
+      ).length;
+
+      return total > 0 ? Math.round((completions / total) * 100) : 0;
+    }).reverse();
+
+    // Calculate habit comparison
+    const habitComparison = habits.map(habit => {
+      const completions = habit.completedDates.filter(date => {
+        const completionDate = new Date(date);
+        return completionDate >= dateRange.start && completionDate <= dateRange.end;
+      }).length;
+
+      const total = days.filter(day =>
+        habit.targetDays.includes(day.toLocaleDateString('en-US', { weekday: 'long' }))
+      ).length;
+
+      return {
+        name: habit.name,
+        completion: total > 0 ? Math.round((completions / total) * 100) : 0
+      };
+    });
+
+    // Calculate best days
+    const bestDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => {
+      const dayCompletions = habits.reduce((sum, habit) => {
+        if (!habit.targetDays.includes(day)) return sum;
+        
+        const completions = habit.completedDates.filter(date => {
+          const completionDate = new Date(date);
+          return completionDate >= dateRange.start && 
+                 completionDate <= dateRange.end &&
+                 completionDate.toLocaleDateString('en-US', { weekday: 'short' }) === day;
+        }).length;
+
+        return sum + completions;
+      }, 0);
+
+      const totalPossible = habits.reduce((sum, habit) => {
+        if (!habit.targetDays.includes(day)) return sum;
+        
+        const possibleCompletions = days.filter(d =>
+          d.toLocaleDateString('en-US', { weekday: 'short' }) === day
+        ).length;
+
+        return sum + possibleCompletions;
+      }, 0);
+
+      return {
+        name: day,
+        value: totalPossible > 0 ? Math.round((dayCompletions / totalPossible) * 100) : 0
+      };
+    });
+
+    return {
+      completionRate,
+      streakData,
+      habitComparison,
+      bestDays
+    };
+  }, [habits, loading, dateRange]);
 
   return (
     <div className="container py-8 animate-fade-in">
-      <h1 className="text-3xl font-bold mb-2">Analytics</h1>
-      <p className="text-muted-foreground mb-8">Track your progress and analyze your habits</p>
-
-      {/* Time Range Selector */}
-      <div className="mb-8">
-        <div className="flex flex-wrap gap-2">
-          <Button 
-            variant={timeRange === 'week' ? 'default' : 'outline'} 
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">Analytics</h1>
+        
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => handleTimeRangeChange('week')}
+            className={timeRange === 'week' ? 'bg-secondary/30' : ''}
           >
             Week
           </Button>
-          <Button 
-            variant={timeRange === 'month' ? 'default' : 'outline'} 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => handleTimeRangeChange('month')}
+            className={timeRange === 'month' ? 'bg-secondary/30' : ''}
           >
             Month
           </Button>
-          <Button 
-            variant={timeRange === 'quarter' ? 'default' : 'outline'} 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => handleTimeRangeChange('quarter')}
+            className={timeRange === 'quarter' ? 'bg-secondary/30' : ''}
           >
             Quarter
           </Button>
-          <Button 
-            variant={timeRange === 'year' ? 'default' : 'outline'} 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => handleTimeRangeChange('year')}
+            className={timeRange === 'year' ? 'bg-secondary/30' : ''}
           >
             Year
           </Button>
-          <Button 
-            variant={timeRange === 'all' ? 'default' : 'outline'} 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => handleTimeRangeChange('all')}
+            className={timeRange === 'all' ? 'bg-secondary/30' : ''}
           >
             All Time
           </Button>
         </div>
       </div>
 
-      {/* Charts */}
       {isMobile ? (
         // Mobile layout with tabs
         <Tabs defaultValue="summary">
@@ -114,25 +228,25 @@ const AnalyticsPage: React.FC = () => {
           </TabsList>
           
           <TabsContent value="summary" className="space-y-6">
-            <CompletionChart data={mockData.completionRate} />
-            <HabitComparisonChart data={mockData.habitComparison} />
+            <CompletionChart data={analyticsData.completionRate} />
+            <HabitComparisonChart data={analyticsData.habitComparison} />
           </TabsContent>
           
           <TabsContent value="trends" className="space-y-6">
-            <TrendChart data={mockData.streakData} timeRange={timeRange} />
+            <TrendChart data={analyticsData.streakData} timeRange={timeRange} />
           </TabsContent>
           
           <TabsContent value="breakdown" className="space-y-6">
-            <DayAnalysisChart data={mockData.bestDays} />
+            <DayAnalysisChart data={analyticsData.bestDays} />
           </TabsContent>
         </Tabs>
       ) : (
         // Desktop layout with grid
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <CompletionChart data={mockData.completionRate} />
-          <HabitComparisonChart data={mockData.habitComparison} />
-          <TrendChart data={mockData.streakData} timeRange={timeRange} />
-          <DayAnalysisChart data={mockData.bestDays} />
+          <CompletionChart data={analyticsData.completionRate} />
+          <HabitComparisonChart data={analyticsData.habitComparison} />
+          <TrendChart data={analyticsData.streakData} timeRange={timeRange} />
+          <DayAnalysisChart data={analyticsData.bestDays} />
         </div>
       )}
     </div>

@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import HabitHeatmap from '@/components/calendar/HabitHeatmap';
 import HabitSelect from '@/components/calendar/HabitSelect';
 import { Button } from '@/components/ui/button';
@@ -11,137 +10,49 @@ import {
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-
-// Mock habit categories
-const categories = [
-  { id: 'health', name: 'Health & Wellness' },
-  { id: 'productivity', name: 'Productivity' },
-  { id: 'learning', name: 'Learning' },
-  { id: 'social', name: 'Social' },
-];
-
-// Mock habits data with categories
-const habits = [
-  { id: '1', name: 'Morning meditation', categoryId: 'health' },
-  { id: '2', name: 'Read a book', categoryId: 'learning' },
-  { id: '3', name: 'Exercise', categoryId: 'health' },
-  { id: '4', name: 'Drink water', categoryId: 'health' },
-  { id: '5', name: 'Code practice', categoryId: 'learning' },
-  { id: '6', name: 'Journal writing', categoryId: 'productivity' },
-  { id: '7', name: 'Call a friend', categoryId: 'social' },
-];
-
-// Mock habit completion data
-// Format: { [YYYY-MM-DD]: { habitId: percentage } }
-const mockCompletionData = {
-  '2025-05-01': { '1': 1, '2': 1, '3': 0, '4': 1, '5': 1, '6': 0, '7': 0 },
-  '2025-05-02': { '1': 1, '2': 1, '3': 1, '4': 1, '5': 0, '6': 1, '7': 1 },
-  '2025-05-03': { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0 },
-  '2025-05-04': { '1': 1, '2': 0, '3': 1, '4': 0, '5': 1, '6': 0, '7': 1 },
-  '2025-05-05': { '1': 1, '2': 1, '3': 0, '4': 1, '5': 1, '6': 1, '7': 0 },
-  '2025-05-06': { '1': 0, '2': 1, '3': 1, '4': 1, '5': 0, '6': 1, '7': 1 },
-  '2025-05-07': { '1': 1, '2': 0, '3': 0, '4': 0, '5': 1, '6': 0, '7': 0 },
-  // Previous month data
-  '2025-04-15': { '1': 1, '2': 1, '3': 1, '4': 0, '5': 0, '6': 1, '7': 1 },
-  '2025-04-16': { '1': 0, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '7': 0 },
-  '2025-04-17': { '1': 1, '2': 0, '3': 1, '4': 1, '5': 0, '6': 0, '7': 1 },
-  // Next month data
-  '2025-06-01': { '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '7': 1 },
-  '2025-06-02': { '1': 0, '2': 0, '3': 1, '4': 1, '5': 1, '6': 0, '7': 1 },
-};
+import { useHabits } from '@/contexts/HabitContext';
+import { format, addMonths, subMonths } from 'date-fns';
 
 const CalendarPage: React.FC = () => {
-  const { toast } = useToast();
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-  const [selectedHabit, setSelectedHabit] = useState<string>('all');
+  const { habits, loading } = useHabits();
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedHabit, setSelectedHabit] = useState('all');
   const [viewType, setViewType] = useState<'month' | 'year'>('month');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  
-  const getMonthLabel = (date: Date) => {
-    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  };
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  // Process completion data for the heatmap
+  const completionData = React.useMemo(() => {
+    const data: Record<string, Record<string, number>> = {};
+    
+    habits.forEach(habit => {
+      habit.completedDates.forEach(date => {
+        if (!data[date]) {
+          data[date] = {};
+        }
+        data[date][habit.id] = 1;
+      });
+    });
+
+    return data;
+  }, [habits]);
 
   const handlePreviousMonth = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setCurrentMonth(prev => {
-        const newDate = new Date(prev);
-        newDate.setMonth(newDate.getMonth() - 1);
-        return newDate;
-      });
-      setIsLoading(false);
-    }, 300); // Simulate loading delay
+    setCurrentMonth(prev => subMonths(prev, 1));
   };
 
   const handleNextMonth = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setCurrentMonth(prev => {
-        const newDate = new Date(prev);
-        newDate.setMonth(newDate.getMonth() + 1);
-        return newDate;
-      });
-      setIsLoading(false);
-    }, 300); // Simulate loading delay
+    setCurrentMonth(prev => addMonths(prev, 1));
   };
-  
-  const handleCategoryChange = (categoryId: string) => {
-    setSelectedCategory(categoryId);
-    
-    // If a specific category is selected, reset habit selection to 'all'
-    if (categoryId !== 'all') {
-      setSelectedHabit('all');
-      toast({
-        title: "Category filter applied",
-        description: `Showing habits in ${categories.find(c => c.id === categoryId)?.name || 'selected category'}`,
-      });
-    }
+
+  const getMonthLabel = (date: Date) => {
+    return format(date, 'MMMM yyyy');
   };
-  
-  // Filter habits by selected category
-  const filteredHabits = selectedCategory === 'all' 
-    ? habits 
-    : habits.filter(habit => habit.categoryId === selectedCategory);
 
   return (
     <div className="container py-8 animate-fade-in">
-      <h1 className="text-3xl font-bold mb-2">Habit Calendar</h1>
-      <p className="text-muted-foreground mb-8">Track your consistency over time</p>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-          <HabitSelect
-            habits={filteredHabits}
-            selectedHabit={selectedHabit}
-            onSelectHabit={setSelectedHabit}
-            categories={categories}
-            showCategories={selectedCategory === 'all'}
-          />
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="flex items-center gap-2">
-                <Filter className="h-4 w-4" />
-                <span>{selectedCategory === 'all' ? 'All Categories' : categories.find(c => c.id === selectedCategory)?.name}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleCategoryChange('all')}>
-                All Categories
-              </DropdownMenuItem>
-              {categories.map((category) => (
-                <DropdownMenuItem 
-                  key={category.id}
-                  onClick={() => handleCategoryChange(category.id)}
-                >
-                  {category.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">Calendar</h1>
         
         <div className="flex items-center gap-2">
           <Button
@@ -187,9 +98,9 @@ const CalendarPage: React.FC = () => {
         month={currentMonth}
         viewType={viewType}
         selectedHabit={selectedHabit}
-        completionData={mockCompletionData}
-        habits={habits}
-        isLoading={isLoading}
+        completionData={completionData}
+        habits={habits.map(h => ({ id: h.id, name: h.name }))}
+        isLoading={loading || isLoading}
       />
     </div>
   );
