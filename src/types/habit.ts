@@ -1,3 +1,4 @@
+
 export interface Habit {
   id: string;
   name: string;
@@ -8,4 +9,5 @@ export interface Habit {
   streak: number;
   highestStreak: number;
   created_at?: string;
+  missedDates?: string[]; // Array of ISO string dates that were missed
 }
