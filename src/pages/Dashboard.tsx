@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHabits } from '@/contexts/HabitContext';
-import HabitCard from '@/components/dashboard/HabitCard';
+import HabitCard from '@/components/habits/HabitCard';
 import StreakCard from '@/components/dashboard/StreakCard';
 import QuoteCard from '@/components/dashboard/QuoteCard';
 import StatsCard from '@/components/dashboard/StatsCard';
@@ -37,7 +37,8 @@ const Dashboard: React.FC = () => {
       await toggleHabitCompletion(id, date);
       toast.success('Habit updated successfully');
     } catch (error) {
-      toast.error('Failed to update habit');
+      console.error('Dashboard toggle error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update habit');
     }
   };
 
@@ -112,18 +113,7 @@ const Dashboard: React.FC = () => {
         ) : (
           <div className="space-y-3">
             {todayHabits.map(habit => (
-              <HabitCard
-                key={habit.id}
-                id={habit.id}
-                name={habit.name}
-                description={`${habit.streak} day streak`}
-                completed={habit.completedDates}
-                streak={habit.streak}
-                onToggle={handleToggleHabit}
-                startDate={habit.startDate}
-                targetDays={habit.targetDays}
-                highestStreak={habit.highestStreak}
-              />
+              <HabitCard key={habit.id} habit={habit} />
             ))}
           </div>
         )}

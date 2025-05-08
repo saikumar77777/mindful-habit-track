@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Calendar, ChartLine, Star } from 'lucide-react';
+import { Calendar, ChartLine, Star, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CompletionChart from '@/components/analytics/CompletionChart';
 import TrendChart from '@/components/analytics/TrendChart';
@@ -9,7 +9,7 @@ import DayAnalysisChart from '@/components/analytics/DayAnalysisChart';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getItem, setItem } from '@/lib/local-storage';
 import { useHabits } from '@/contexts/HabitContext';
-import { format, subDays, startOfDay, endOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, eachDayOfInterval, isSameDay, parseISO } from 'date-fns';
 
 // Time range options for analytics
 type TimeRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
@@ -18,12 +18,10 @@ const AnalyticsPage: React.FC = () => {
   const isMobile = useIsMobile();
   const { habits, loading } = useHabits();
   
-  // Load the last selected time range from localStorage
   const [timeRange, setTimeRange] = useState<TimeRange>(
     getItem('analytics_range', 'week') as TimeRange
   );
 
-  // Save time range selection to localStorage
   const handleTimeRangeChange = (range: TimeRange) => {
     setTimeRange(range);
     setItem('analytics_range', range);
@@ -49,13 +47,20 @@ const AnalyticsPage: React.FC = () => {
         break;
       case 'all':
       default:
-        start = new Date(0); // Beginning of time
+        start = new Date(0);
     }
 
     return { start, end };
   }, [timeRange]);
 
-  // Calculate analytics data
+  // Pre-calculate days array and date strings
+  const { days, dateStrings } = useMemo(() => {
+    const daysArray = eachDayOfInterval({ start: dateRange.start, end: dateRange.end });
+    const dateStringsSet = new Set(daysArray.map(d => d.toISOString().split('T')[0]));
+    return { days: daysArray, dateStrings: dateStringsSet };
+  }, [dateRange]);
+
+  // Calculate analytics data with optimized operations
   const analyticsData = useMemo(() => {
     if (loading || !habits.length) {
       return {
@@ -66,60 +71,68 @@ const AnalyticsPage: React.FC = () => {
       };
     }
 
-    // Get all days in the selected range
-    const days = eachDayOfInterval({ start: dateRange.start, end: dateRange.end });
-    
+    // Pre-calculate day names for the entire range
+    const dayNames = days.map(day => day.toLocaleDateString('en-US', { weekday: 'long' }));
+    const shortDayNames = days.map(day => day.toLocaleDateString('en-US', { weekday: 'short' }));
+
+    // Calculate completion data in a single pass
+    const completionData = habits.reduce((acc, habit) => {
+      const habitCompletions = new Set(habit.completedDates);
+      let completions = 0;
+      let possibleCompletions = 0;
+
+      days.forEach((day, index) => {
+        if (habit.targetDays.includes(dayNames[index])) {
+          possibleCompletions++;
+          if (habitCompletions.has(day.toISOString().split('T')[0])) {
+            completions++;
+          }
+        }
+      });
+
+      acc.totalCompletions += completions;
+      acc.totalPossibleCompletions += possibleCompletions;
+      acc.habitCompletions.push({
+        name: habit.name,
+        completions,
+        possibleCompletions
+      });
+
+      return acc;
+    }, {
+      totalCompletions: 0,
+      totalPossibleCompletions: 0,
+      habitCompletions: [] as Array<{ name: string; completions: number; possibleCompletions: number }>
+    });
+
     // Calculate completion rate
-    const totalCompletions = habits.reduce((sum, habit) => {
-      return sum + habit.completedDates.filter(date => {
-        const completionDate = new Date(date);
-        return completionDate >= dateRange.start && completionDate <= dateRange.end;
-      }).length;
-    }, 0);
-
-    const totalPossibleCompletions = habits.reduce((sum, habit) => {
-      return sum + days.filter(day => 
-        habit.targetDays.includes(day.toLocaleDateString('en-US', { weekday: 'long' }))
-      ).length;
-    }, 0);
-
-    const completionRate = totalPossibleCompletions > 0
-      ? Math.round((totalCompletions / totalPossibleCompletions) * 100)
+    const completionRate = completionData.totalPossibleCompletions > 0
+      ? Math.round((completionData.totalCompletions / completionData.totalPossibleCompletions) * 100)
       : 0;
 
     // Calculate streak data (last 7 days)
     const streakData = Array.from({ length: 7 }, (_, i) => {
       const date = subDays(new Date(), i);
       const dateStr = date.toISOString().split('T')[0];
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
       
       const completions = habits.filter(habit => 
         habit.completedDates.includes(dateStr) &&
-        habit.targetDays.includes(date.toLocaleDateString('en-US', { weekday: 'long' }))
+        habit.targetDays.includes(dayName)
       ).length;
 
       const total = habits.filter(habit =>
-        habit.targetDays.includes(date.toLocaleDateString('en-US', { weekday: 'long' }))
+        habit.targetDays.includes(dayName)
       ).length;
 
       return total > 0 ? Math.round((completions / total) * 100) : 0;
     }).reverse();
 
     // Calculate habit comparison
-    const habitComparison = habits.map(habit => {
-      const completions = habit.completedDates.filter(date => {
-        const completionDate = new Date(date);
-        return completionDate >= dateRange.start && completionDate <= dateRange.end;
-      }).length;
-
-      const total = days.filter(day =>
-        habit.targetDays.includes(day.toLocaleDateString('en-US', { weekday: 'long' }))
-      ).length;
-
-      return {
-        name: habit.name,
-        completion: total > 0 ? Math.round((completions / total) * 100) : 0
-      };
-    });
+    const habitComparison = completionData.habitCompletions.map(({ name, completions, possibleCompletions }) => ({
+      name,
+      completion: possibleCompletions > 0 ? Math.round((completions / possibleCompletions) * 100) : 0
+    }));
 
     // Calculate best days
     const dayNameMap = {
@@ -131,12 +144,13 @@ const AnalyticsPage: React.FC = () => {
       Sat: 'Saturday',
       Sun: 'Sunday',
     };
+
     const bestDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => {
       const fullDay = dayNameMap[day];
       const dayCompletions = habits.reduce((sum, habit) => {
         if (!habit.targetDays.includes(fullDay)) return sum;
         const completions = habit.completedDates.filter(date => {
-          const completionDate = new Date(date);
+          const completionDate = parseISO(date);
           return completionDate >= dateRange.start && 
                  completionDate <= dateRange.end &&
                  completionDate.toLocaleDateString('en-US', { weekday: 'short' }) === day;
@@ -164,10 +178,53 @@ const AnalyticsPage: React.FC = () => {
       habitComparison,
       bestDays
     };
-  }, [habits, loading, dateRange]);
+  }, [habits, loading, dateRange, days]);
+
+  // Calculate best performer with optimized operations
+  const bestPerformer = useMemo(() => {
+    if (!habits.length) return null;
+    
+    return habits.reduce((best, habit) => {
+      const completions = habit.completedDates.filter(date => {
+        const completionDate = parseISO(date);
+        return completionDate >= dateRange.start && completionDate <= dateRange.end;
+      }).length;
+
+      const total = days.filter(day =>
+        habit.targetDays.includes(day.toLocaleDateString('en-US', { weekday: 'long' }))
+      ).length;
+
+      const completionRate = total > 0 ? (completions / total) * 100 : 0;
+      
+      if (!best || completionRate > best.rate) {
+        return { name: habit.name, rate: completionRate };
+      }
+      return best;
+    }, null as { name: string; rate: number } | null);
+  }, [habits, dateRange, days]);
 
   return (
     <div className="container py-8 animate-fade-in">
+      <header className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight mb-2">Analytics</h1>
+        <p className="text-muted-foreground">
+          Track your progress and identify patterns in your habits
+        </p>
+      </header>
+
+      {/* Best Performer */}
+      {bestPerformer && (
+        <div className="mb-8 p-4 bg-accent/10 rounded-lg flex items-center gap-3">
+          <Trophy className="h-6 w-6 text-yellow-500" />
+          <div>
+            <h3 className="font-medium">Best Performer</h3>
+            <p className="text-sm text-muted-foreground">
+              {bestPerformer.name} - {Math.round(bestPerformer.rate)}% completion rate
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Analytics</h1>
         

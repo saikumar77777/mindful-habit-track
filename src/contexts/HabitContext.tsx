@@ -5,10 +5,12 @@ import { useAuth } from './AuthContext';
 
 interface HabitContextType {
   habits: Habit[];
-  addHabit: (habit: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates'>) => Promise<void>;
+  addHabit: (habit: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates' | 'completionTimestamps'>) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
+  editHabit: (id: string, updates: Partial<Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates' | 'completionTimestamps'>>) => Promise<void>;
   toggleHabitCompletion: (habitId: string, date: string) => Promise<void>;
   getCompletedDatesForHabit: (habitId: string) => string[];
+  getCompletionTimestamp: (habitId: string, date: string) => string | undefined;
   isHabitCompletedOnDate: (habitId: string, date: string) => boolean;
   loading: boolean;
 }
@@ -124,6 +126,13 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             .filter(c => c.habit_id === habit.id)
             .map(c => c.completion_date);
 
+          const completionTimestamps = completionsData
+            .filter(c => c.habit_id === habit.id)
+            .reduce((acc, c) => ({
+              ...acc,
+              [c.completion_date]: c.completed_at
+            }), {});
+
           const streak = calculateCurrentStreak(habitCompletions, habit.target_days);
           const highestStreak = calculateHighestStreak(habitCompletions, habit.target_days);
 
@@ -133,8 +142,10 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             targetDays: habit.target_days,
             startDate: habit.start_date,
             completedDates: habitCompletions,
+            completionTimestamps,
             streak,
-            highestStreak
+            highestStreak,
+            created_at: habit.created_at
           };
         });
 
@@ -149,7 +160,7 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     fetchHabits();
   }, [user]);
 
-  const addHabit = async (habitData: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates'>) => {
+  const addHabit = async (habitData: Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates' | 'completionTimestamps'>) => {
     if (!user) return;
 
     try {
@@ -174,8 +185,10 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         targetDays: data.target_days,
         startDate: data.start_date,
         completedDates: [],
+        completionTimestamps: {},
         streak: 0,
-        highestStreak: 0
+        highestStreak: 0,
+        created_at: data.created_at
       };
 
       setHabits(prev => [...prev, newHabit]);
@@ -201,12 +214,50 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const editHabit = async (id: string, updates: Partial<Omit<Habit, 'id' | 'streak' | 'highestStreak' | 'completedDates' | 'completionTimestamps'>>) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('habits')
+        .update({
+          name: updates.name,
+          target_days: updates.targetDays,
+          start_date: updates.startDate,
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Update local state
+      setHabits(prev => 
+        prev.map(habit => {
+          if (habit.id !== id) return habit;
+          return {
+            ...habit,
+            name: updates.name || habit.name,
+            targetDays: updates.targetDays || habit.targetDays,
+            startDate: updates.startDate || habit.startDate,
+            created_at: updates.created_at || habit.created_at
+          };
+        })
+      );
+    } catch (error) {
+      console.error('Error editing habit:', error);
+      throw error;
+    }
+  };
+
   const toggleHabitCompletion = async (habitId: string, date: string) => {
     try {
       const habit = habits.find(h => h.id === habitId);
-      if (!habit) return;
+      if (!habit) {
+        console.error('Habit not found:', habitId);
+        return;
+      }
 
       const isCompleted = habit.completedDates.includes(date);
+      const now = new Date().toISOString();
 
       if (isCompleted) {
         // Remove completion
@@ -216,17 +267,36 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           .eq('habit_id', habitId)
           .eq('completion_date', date);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error deleting completion:', error);
+          throw error;
+        }
       } else {
-        // Add completion
-        const { error } = await supabase
+        // Add completion with timestamp
+        const { data, error } = await supabase
           .from('habit_completions')
           .insert({
             habit_id: habitId,
-            completion_date: date
-          });
+            completion_date: date,
+            completed_at: now
+          })
+          .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error inserting completion:', error);
+          // Try without completed_at
+          const { error: retryError } = await supabase
+            .from('habit_completions')
+            .insert({
+              habit_id: habitId,
+              completion_date: date
+            });
+
+          if (retryError) {
+            console.error('Error on retry:', retryError);
+            throw retryError;
+          }
+        }
       }
 
       // Update local state
@@ -235,11 +305,18 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (habit.id !== habitId) return habit;
           
           let updatedCompletedDates: string[];
+          let updatedTimestamps: Record<string, string>;
           
           if (isCompleted) {
             updatedCompletedDates = habit.completedDates.filter(d => d !== date);
+            const { [date]: _, ...rest } = habit.completionTimestamps;
+            updatedTimestamps = rest;
           } else {
             updatedCompletedDates = [...habit.completedDates, date];
+            updatedTimestamps = {
+              ...habit.completionTimestamps,
+              [date]: now
+            };
           }
           
           const newStreak = calculateCurrentStreak(updatedCompletedDates, habit.targetDays);
@@ -248,13 +325,15 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return {
             ...habit,
             completedDates: updatedCompletedDates,
+            completionTimestamps: updatedTimestamps,
             streak: newStreak,
-            highestStreak: newHighestStreak
+            highestStreak: newHighestStreak,
+            created_at: habit.created_at
           };
         })
       );
     } catch (error) {
-      console.error('Error toggling habit completion:', error);
+      console.error('Error in toggleHabitCompletion:', error);
       throw error;
     }
   };
@@ -262,6 +341,11 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const getCompletedDatesForHabit = (habitId: string): string[] => {
     const habit = habits.find(h => h.id === habitId);
     return habit ? habit.completedDates : [];
+  };
+
+  const getCompletionTimestamp = (habitId: string, date: string): string | undefined => {
+    const habit = habits.find(h => h.id === habitId);
+    return habit?.completionTimestamps[date];
   };
 
   const isHabitCompletedOnDate = (habitId: string, date: string): boolean => {
@@ -273,8 +357,10 @@ export const HabitProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     habits,
     addHabit,
     deleteHabit,
+    editHabit,
     toggleHabitCompletion,
     getCompletedDatesForHabit,
+    getCompletionTimestamp,
     isHabitCompletedOnDate,
     loading
   };

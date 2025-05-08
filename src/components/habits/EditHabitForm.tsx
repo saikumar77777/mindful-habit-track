@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useHabits } from '@/contexts/HabitContext';
+import { Habit } from '@/types/habit';
 import { Calendar } from '@/components/ui/calendar';
 import { Check, Calendar as CalendarIcon } from 'lucide-react';
 
@@ -54,17 +55,22 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-const AddHabitForm = () => {
-  const { addHabit } = useHabits();
+interface EditHabitFormProps {
+  habit: Habit;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+const EditHabitForm: React.FC<EditHabitFormProps> = ({ habit, open, onOpenChange }) => {
+  const { editHabit } = useHabits();
   const { toast } = useToast();
-  const [open, setOpen] = React.useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: '',
-      targetDays: [],
-      startDate: new Date(),
+      name: habit.name,
+      targetDays: habit.targetDays,
+      startDate: new Date(habit.startDate),
     },
   });
 
@@ -73,32 +79,34 @@ const AddHabitForm = () => {
     form.setValue('targetDays', allDays);
   };
 
-  const onSubmit = (data: FormValues) => {
-    addHabit({
-      name: data.name,
-      targetDays: data.targetDays,
-      startDate: data.startDate.toISOString(),
-    });
-    
-    toast({
-      title: 'Habit created',
-      description: `${data.name} has been added to your habits`,
-    });
-    
-    form.reset();
-    setOpen(false);
+  const onSubmit = async (data: FormValues) => {
+    try {
+      await editHabit(habit.id, {
+        name: data.name,
+        targetDays: data.targetDays,
+        startDate: data.startDate.toISOString(),
+      });
+      
+      toast({
+        title: 'Habit updated',
+        description: `${data.name} has been updated successfully`,
+      });
+      
+      onOpenChange(false);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update habit. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="w-full">
-          Add New Habit
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create a new habit</DialogTitle>
+          <DialogTitle>Edit Habit</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -213,7 +221,7 @@ const AddHabitForm = () => {
             />
             
             <DialogFooter>
-              <Button type="submit">Create Habit</Button>
+              <Button type="submit">Save Changes</Button>
             </DialogFooter>
           </form>
         </Form>
@@ -222,4 +230,4 @@ const AddHabitForm = () => {
   );
 };
 
-export default AddHabitForm;
+export default EditHabitForm; 
